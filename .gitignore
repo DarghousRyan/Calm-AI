@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Local databases / artifacts
+*.db
+
+# ML artifacts (generated)
+app/ml/artifacts/*.joblib
+
+# Data outputs (generated)
+data/synthetic/*.csv
+
+# OS / editor
+.DS_Store
+
