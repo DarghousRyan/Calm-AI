@@ -17,6 +17,7 @@ from datetime import date
 from typing import Any
 
 import requests
+from requests import exceptions as requests_exceptions
 import streamlit as st
 
 
@@ -111,7 +112,7 @@ with st.form("daily_log_form", clear_on_submit=False):
 
     with col1:
         log_date = st.date_input("Log date", value=date.today())
-        mood = st.selectbox("Mood", options=["great", "good", "okay", "down", "bad"], index=2)
+        mood = st.selectbox("Mood", options=["Great", "Good", "Okay", "Down", "Bad"], index=2)
         sleep_hours = st.number_input("Sleep (hours)", min_value=0.0, max_value=16.0, value=7.0, step=0.25)
         exercise_minutes = st.number_input("Exercise (minutes)", min_value=0, max_value=300, value=20, step=5)
 
@@ -227,6 +228,33 @@ if submitted:
         else:
             st.info("No recommendations returned yet.")
 
+    except (requests_exceptions.ConnectionError, requests_exceptions.Timeout) as e:
+        st.error(
+            "Could not connect to the backend.\n\n"
+            "Start the API from the project root (with your venv activated):\n"
+            "`uvicorn app.main:app --reload`\n\n"
+            "Then confirm **Backend URL** in the sidebar matches the server (default `http://127.0.0.1:8000`)."
+        )
+        st.code(str(e))
+    except RuntimeError as e:
+        err_text = str(e)
+        if "status=503" in err_text or "Missing model artifact" in err_text:
+            st.error(
+                "The API is running, but the trained model file is missing.\n\n"
+                "From the project root, run:\n"
+                "`python scripts/generate_synthetic_data.py --users 500 --days 60 --seed 42`\n"
+                "`python scripts/train_model.py`\n\n"
+                "Restart `uvicorn` after `train_model.py` writes `app/ml/artifacts/risk_model.joblib`."
+            )
+        else:
+            st.error(
+                "Couldn’t get results from the backend.\n\n"
+                "Common causes:\n"
+                "- The API isn’t running\n"
+                "- The backend URL is incorrect\n"
+                "- The request failed (see details below)\n"
+            )
+        st.code(err_text)
     except Exception as e:
         st.error(
             "Couldn’t get results from the backend.\n\n"
