@@ -90,30 +90,6 @@ Useful endpoints:
 - `POST /ml/predict`
 - `POST /recommendations`
 
-Example predict request (**macOS / Linux** — bash):
-
-```bash
-curl -X POST "http://127.0.0.1:8000/ml/predict" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "mood": "okay",
-    "stress": 5.2,
-    "craving": 4.1,
-    "sleep_hours": 7.0,
-    "exercise_minutes": 20,
-    "social_interaction": 30,
-    "trigger_boredom": 0,
-    "trigger_loneliness": 0,
-    "trigger_conflict": 0,
-    "days_since_last_relapse": 7
-  }'
-```
-
-**Windows (PowerShell):** use `curl.exe` so you invoke the real curl client, not the PowerShell alias:
-
-```powershell
-curl.exe -X POST "http://127.0.0.1:8000/ml/predict" -H "Content-Type: application/json" -d '{"mood":"okay","stress":5.2,"craving":4.1,"sleep_hours":7.0,"exercise_minutes":20,"social_interaction":30,"trigger_boredom":0,"trigger_loneliness":0,"trigger_conflict":0,"days_since_last_relapse":7}'
-```
 
 ### Run the Streamlit UI
 
