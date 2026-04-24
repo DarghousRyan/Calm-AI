@@ -10,7 +10,7 @@ Minimal FastAPI + Streamlit project for:
 ### Prerequisites
 
 - **Python 3.10+** installed and available as `python` or `python3`
-- A terminal: **Terminal** or **iTerm** on macOS; **PowerShell** or **Command Prompt** on Windows
+- A terminal: **Terminal** on macOS; **PowerShell** or **Command Prompt** on Windows
 
 Open a terminal, `cd` into this project folder, then follow **Setup** for your OS.
 
@@ -32,12 +32,6 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
-```
-
-If activation fails with an execution-policy error, run once for your user account, then activate again:
-
-```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
 
 On Windows **Command Prompt** (cmd), use `.\.venv\Scripts\activate.bat` instead of `Activate.ps1`.
