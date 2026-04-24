@@ -13,6 +13,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from app.services.groq_recommendation_assist import enrich_with_groq_if_configured
 from app.services.recommendation_service import DISCLAIMER_TEXT, generate_recommendations
 
 
@@ -40,6 +41,11 @@ class RecommendationsResponse(BaseModel):
 def recommendations(req: RecommendationsRequest) -> dict[str, Any]:
     try:
         recs = generate_recommendations(req.latest_log, risk_level=req.risk_level)
+        recs = enrich_with_groq_if_configured(
+            req.latest_log,
+            req.risk_level,
+            recs,
+        )
         return {"disclaimer": DISCLAIMER_TEXT, "recommendations": recs}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Recommendation generation failed: {e}") from e

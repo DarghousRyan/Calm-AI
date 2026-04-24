@@ -228,31 +228,35 @@ with tab_chat:
     st.header("Chat assistant")
     st.caption("Talk with a supportive assistant powered by your configured backend provider.")
 
-    for message in st.session_state.chat_messages:
-        with st.chat_message(message["role"]):
-            st.write(message["content"])
+    messages_container = st.container()
 
     prompt = st.chat_input("Type your message...")
-    if prompt:
-        st.session_state.chat_messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.write(prompt)
+    with messages_container:
+        for message in st.session_state.chat_messages:
+            with st.chat_message(message["role"]):
+                st.write(message["content"])
 
-        chat_url = f"{backend_url}/chat"
-        try:
-            chat_resp = _post_json(chat_url, {"message": prompt}, timeout_s=45.0)
-            reply = str(chat_resp.get("reply", "")).strip() or "I could not generate a response right now."
-        except Exception as e:
-            reply = f"Chat is unavailable right now: {e}"
+       
+        if prompt:
+            st.session_state.chat_messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.write(prompt)
 
-        st.session_state.chat_messages.append({"role": "assistant", "content": reply})
-        with st.chat_message("assistant"):
-            st.write(reply)
+            chat_url = f"{backend_url}/chat"
+            try:
+                chat_resp = _post_json(chat_url, {"message": prompt}, timeout_s=45.0)
+                reply = str(chat_resp.get("reply", "")).strip() or "I could not generate a response right now."
+            except Exception as e:
+                reply = f"Chat is unavailable right now: {e}"
+
+            st.session_state.chat_messages.append({"role": "assistant", "content": reply})
+            with st.chat_message("assistant"):
+                st.write(reply)
 
 
 with tab_history:
     st.header("Past check-ins")
-    st.caption("Most recent check-ins saved by the backend.")
+    st.caption("Most recent check-ins.")
     if st.button("Refresh history"):
         pass
 
