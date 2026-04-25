@@ -17,7 +17,8 @@ from requests import exceptions as requests_exceptions
 import streamlit as st
 
 
-DEFAULT_BACKEND_URL = "http://127.0.0.1:8000"
+#DEFAULT_BACKEND_URL = "http://127.0.0.1:8000"
+DEFAULT_BACKEND_URL = "https://calm-ai.onrender.com"
 
 
 def _normalize_backend_url(raw: str) -> str:
