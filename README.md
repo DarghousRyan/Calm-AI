@@ -7,6 +7,15 @@ Minimal FastAPI + Streamlit project for:
 - predicting low/medium/high risk
 - producing supportive, non-clinical recommendations
 
+## Current Deployment Targets
+
+- Backend (FastAPI): `https://calm-ai.onrender.com`
+- Frontend (Streamlit): Streamlit Community Cloud
+
+The Streamlit app default backend URL is already set in `frontend/streamlit_app.py`:
+
+- `DEFAULT_BACKEND_URL = "https://calm-ai.onrender.com"`
+
 ### Prerequisites
 
 - **Python 3.10+** installed and available as `python` or `python3`
@@ -113,3 +122,36 @@ streamlit run frontend\streamlit_app.py
 2. Generate data and train the model (**Generate synthetic data**, **Train the model**).
 3. Start the API in one terminal (`uvicorn app.main:app --reload`).
 4. Start Streamlit in another terminal (**Run the Streamlit UI**).
+
+### Deploying to Render + Streamlit Cloud
+
+1. Deploy backend to Render and confirm `GET /health` works at `https://calm-ai.onrender.com/health`.
+2. Push this repo to GitHub.
+3. In Streamlit Community Cloud, create an app from this GitHub repo.
+4. Set the app file path to `frontend/streamlit_app.py`.
+5. Deploy and test check-in, predictions, recommendations, and chat from the Streamlit URL.
+
+### Keep GitHub Up To Date
+
+Run these from the repo root:
+
+```powershell
+git status
+git fetch origin
+git status -sb
+```
+
+- If you see `## main...origin/main`, local and GitHub are in sync.
+- If you have local changes, commit first:
+
+```powershell
+git add .
+git commit -m "Describe your update"
+git push origin main
+```
+
+- If GitHub has new commits you do not have yet:
+
+```powershell
+git pull --rebase origin main
+```
