@@ -10,7 +10,7 @@ Minimal FastAPI + Streamlit project for:
 ## Current Deployment Targets
 
 - Backend (FastAPI): `https://calm-ai.onrender.com`
-- Frontend (Streamlit): Streamlit Community Cloud
+- Frontend (Streamlit): `calm-ai-ryandarghous.streamlit.app`
 
 The Streamlit app default backend URL is already set in `frontend/streamlit_app.py`:
 
