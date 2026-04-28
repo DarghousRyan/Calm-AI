@@ -9,30 +9,52 @@ Features:
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+import json
+from datetime import date
 from typing import Any
 
 import requests
 from requests import exceptions as requests_exceptions
 import streamlit as st
+import streamlit.components.v1 as components
 
 
 #DEFAULT_BACKEND_URL = "http://127.0.0.1:8000"
 DEFAULT_BACKEND_URL = "https://calm-ai.onrender.com"
 
-def _format_timestamp(ts: str) -> str:
-    if not ts:
-        return "n/a"
-    try:
-        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+def _render_local_timestamp(ts: str, row_index: int) -> None:
+    """Render a UTC timestamp in the viewer's local browser timezone."""
+    dom_id = f"saved-at-{row_index}"
+    js_timestamp = json.dumps(ts or "")
+    js_dom_id = json.dumps(dom_id)
+    components.html(
+        f"""
+        <div id="{dom_id}" style="font-size: 0.875rem; color: rgb(107, 114, 128);">
+            Saved: n/a
+        </div>
+        <script>
+            (function () {{
+                const raw = {js_timestamp};
+                const elementId = {js_dom_id};
+                const el = document.getElementById(elementId);
+                if (!el) return;
+                if (!raw) {{
+                    el.textContent = "Saved: n/a";
+                    return;
+                }}
 
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+                const parsed = new Date(raw);
+                if (Number.isNaN(parsed.getTime())) {{
+                    el.textContent = "Saved: " + raw;
+                    return;
+                }}
 
-        local_dt = dt.astimezone()   # converts to your local timezone
-        return local_dt.strftime("%Y-%m-%d %I:%M %p")
-    except Exception:
-        return ts   
+                el.textContent = "Saved: " + parsed.toLocaleString();
+            }})();
+        </script>
+        """,
+        height=24,
+    )
 
 def _normalize_backend_url(raw: str) -> str:
     return raw.rstrip("/")
@@ -316,10 +338,10 @@ with tab_history:
         if not isinstance(rows, list) or not rows:
             st.info("No saved check-ins yet. Submit a daily log first.")
         else:
-            for row in rows:
+            for idx, row in enumerate(rows):
                 mood = row.get("mood", "unknown")
                 log_day = row.get("log_date", "")
-                created_at = _format_timestamp(row.get("created_at", ""))
+                created_at = row.get("created_at", "")
                 st.markdown(f"**{log_day} - {mood}**")
                 c1, c2, c3 = st.columns(3)
                 c1.write(f"Stress: {row.get('stress', 'n/a')}")
@@ -331,10 +353,9 @@ with tab_history:
                     "Social: "
                     f"{row.get('social_interaction', 'n/a')} min | "
                     "Days since relapse: "
-                    f"{row.get('days_since_last_relapse', 'n/a')} | "
-                    "Saved: "
-                    f"{created_at}"
+                    f"{row.get('days_since_last_relapse', 'n/a')}"
                 )
+                _render_local_timestamp(str(created_at), idx)
                 st.divider()
     except Exception as e:
         st.error("Could not load history from backend.")
