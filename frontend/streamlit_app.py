@@ -9,7 +9,7 @@ Features:
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 import requests
@@ -20,6 +20,14 @@ import streamlit as st
 #DEFAULT_BACKEND_URL = "http://127.0.0.1:8000"
 DEFAULT_BACKEND_URL = "https://calm-ai.onrender.com"
 
+def _format_timestamp(ts: str) -> str:
+    if not ts:
+        return "n/a"
+    try:
+        dt = datetime.fromisoformat(ts)
+        return dt.strftime("%Y-%m-%d %I:%M %p")
+    except Exception:
+        return ts
 
 def _normalize_backend_url(raw: str) -> str:
     return raw.rstrip("/")
@@ -306,7 +314,7 @@ with tab_history:
             for row in rows:
                 mood = row.get("mood", "unknown")
                 log_day = row.get("log_date", "")
-                created_at = row.get("created_at", "")
+                created_at = _format_timestamp(row.get("created_at", ""))
                 st.markdown(f"**{log_day} - {mood}**")
                 c1, c2, c3 = st.columns(3)
                 c1.write(f"Stress: {row.get('stress', 'n/a')}")
