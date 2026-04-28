@@ -28,7 +28,7 @@ def _format_timestamp_hhmm(ts: str) -> str:
         dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone().strftime("%H:%M")
+        return dt.astimezone().strftime("%Y/%d/%m %-I:%M %p")
     except Exception:
         return ts
 
