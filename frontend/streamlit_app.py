@@ -73,6 +73,41 @@ def _normalize_probabilities(raw_probs: dict[str, Any]) -> list[tuple[str, float
 st.set_page_config(page_title="Calm AI", layout="centered")
 st.title("Calm AI")
 st.caption("Daily check-ins, supportive recommendations, and a side chatbot.")
+st.markdown(
+    """
+    <style>
+    .stApp {
+        background-color: #F7FAFC;
+        color: #1F2937;
+    }
+    [data-testid="stSidebar"] {
+        background-color: #EAF1FF;
+        border-right: 1px solid #D5E4FF;
+    }
+    [data-testid="stTabs"] button[aria-selected="true"] {
+        color: #2F6FED !important;
+        border-bottom-color: #2F6FED !important;
+        font-weight: 600;
+    }
+    div[data-testid="stChatMessage"] {
+        background-color: #FFFFFF;
+        border: 1px solid #DCE9FF;
+        border-radius: 12px;
+    }
+    div.stButton > button {
+        background-color: #2F6FED;
+        color: #FFFFFF;
+        border-radius: 8px;
+        border: 1px solid #2F6FED;
+    }
+    div.stButton > button:hover {
+        background-color: #2457BA;
+        border-color: #2457BA;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 if "chat_messages" not in st.session_state:
     st.session_state.chat_messages = [
