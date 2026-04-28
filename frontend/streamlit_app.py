@@ -9,7 +9,7 @@ Features:
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any
 
 import requests
@@ -24,10 +24,15 @@ def _format_timestamp(ts: str) -> str:
     if not ts:
         return "n/a"
     try:
-        dt = datetime.fromisoformat(ts)
-        return dt.strftime("%Y-%m-%d %I:%M %p")
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+
+        local_dt = dt.astimezone()   # converts to your local timezone
+        return local_dt.strftime("%Y-%m-%d %I:%M %p")
     except Exception:
-        return ts
+        return ts   
 
 def _normalize_backend_url(raw: str) -> str:
     return raw.rstrip("/")
