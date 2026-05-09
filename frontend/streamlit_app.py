@@ -12,6 +12,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Any
 
+import matplotlib.pyplot as plt
 import requests
 from requests import exceptions as requests_exceptions
 import streamlit as st
@@ -81,6 +82,63 @@ def _normalize_probabilities(raw_probs: dict[str, Any]) -> list[tuple[str, float
     return rows
 
 
+def _to_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _prepare_journey_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    prepared: list[dict[str, Any]] = []
+    for row in rows:
+        raw_day = str(row.get("log_date", "")).strip()
+        if not raw_day:
+            continue
+        try:
+            day_obj = date.fromisoformat(raw_day)
+        except ValueError:
+            continue
+        prepared.append(
+            {
+                "log_date": day_obj,
+                "stress": _to_float(row.get("stress")),
+                "craving": _to_float(row.get("craving")),
+                "sleep_hours": _to_float(row.get("sleep_hours")),
+                "exercise_minutes": _to_float(row.get("exercise_minutes")),
+                "social_interaction": _to_float(row.get("social_interaction")),
+                "days_since_last_relapse": _to_float(row.get("days_since_last_relapse")),
+            }
+        )
+    prepared.sort(key=lambda x: x["log_date"])
+    return prepared
+
+
+def _plot_journey_chart(rows: list[dict[str, Any]], metric: str, label: str, color: str, y_label: str) -> None:
+    x_vals: list[date] = []
+    y_vals: list[float] = []
+    for row in rows:
+        value = row.get(metric)
+        if value is None:
+            continue
+        x_vals.append(row["log_date"])
+        y_vals.append(float(value))
+
+    if not x_vals:
+        st.info(f"No data available yet for {label}.")
+        return
+
+    fig, ax = plt.subplots(figsize=(8, 5    ))
+    ax.plot(x_vals, y_vals, marker="o", linewidth=2, color=color)
+    ax.set_title(label)
+    ax.set_xlabel("Log date")
+    ax.set_ylabel(y_label)
+    ax.grid(True, alpha=0.3)
+    fig.autofmt_xdate()
+    st.pyplot(fig, use_container_width=True)
+    plt.close(fig)
+
+
 st.set_page_config(page_title="Calm AI", layout="centered")
 st.title("Calm AI")
 st.caption("Daily check-ins, supportive recommendations, and a side chatbot.")
@@ -132,7 +190,9 @@ with st.sidebar:
     )
     st.write("Tip: start the API with `uvicorn app.main:app --reload`.")
 
-tab_checkin, tab_chat, tab_history = st.tabs(["Check-in", "Chat", "Past check-ins"])
+tab_checkin, tab_chat, tab_history, tab_journey = st.tabs(
+    ["Check-in", "Chat", "Past check-ins", "Journey"]
+)
 
 
 with tab_checkin:
@@ -291,7 +351,21 @@ with tab_chat:
 
             chat_url = f"{backend_url}/chat"
             try:
-                chat_resp = _post_json(chat_url, {"message": prompt}, timeout_s=45.0)
+                history_payload = [
+                    {
+                        "role": str(msg.get("role", "")),
+                        "content": str(msg.get("content", "")),
+                    }
+                    for msg in st.session_state.chat_messages[-20:]
+                ]
+                chat_resp = _post_json(
+                    chat_url,
+                    {
+                        "message": prompt,
+                        "history": history_payload,
+                    },
+                    timeout_s=45.0,
+                )
                 reply = str(chat_resp.get("reply", "")).strip() or "I could not generate a response right now."
             except Exception as e:
                 reply = f"Chat is unavailable right now: {e}"
@@ -336,4 +410,45 @@ with tab_history:
                 st.divider()
     except Exception as e:
         st.error("Could not load history from backend.")
+        st.code(str(e))
+
+
+with tab_journey:
+    st.header("Journey trends")
+    st.caption("Visualize how your wellness signals change over time.")
+    if st.button("Refresh journey charts"):
+        pass
+
+    try:
+        history_url = f"{backend_url}/checkins?limit=365"
+        data = _get_json(history_url)
+        rows = data.get("checkins", [])
+        if not isinstance(rows, list) or not rows:
+            st.info("No trend data yet. Submit check-ins to build your journey chart.")
+        else:
+            prepared_rows = _prepare_journey_rows(rows)
+            if not prepared_rows:
+                st.info("Trend data is present but missing valid log dates.")
+            else:
+                st.subheader("Key metrics over time")
+
+
+        col1, col2 = st.columns(2)
+        with col1:
+            _plot_journey_chart(prepared_rows, "stress", "Stress trend", "#E76F51", "Stress (0-10)")
+        with col2:
+            _plot_journey_chart(prepared_rows, "craving", "Craving trend", "#F4A261", "Craving (0-10)")
+        col3, col4 = st.columns(2)
+        with col3:
+            _plot_journey_chart(prepared_rows, "sleep_hours", "Sleep trend", "#2A9D8F", "Sleep (hours)")
+        with col4:
+            _plot_journey_chart(prepared_rows, "exercise_minutes", "Exercise trend", "#457B9D", "Exercise (minutes)")
+        
+        col5, col6 = st.columns(2)
+        with col5:
+            _plot_journey_chart(prepared_rows, "social_interaction", "Social interaction trend", "#7B2CBF", "Social interaction (minutes)")
+        with col6:
+            _plot_journey_chart(prepared_rows, "days_since_last_relapse", "Days since relapse trend", "#2B9348", "Days since last relapse")
+    except Exception as e:
+        st.error("Could not load journey visualization data.")
         st.code(str(e))

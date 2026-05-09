@@ -9,6 +9,7 @@ import os
 import requests
 
 _GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+_ALLOWED_ROLES = {"user", "assistant"}
 
 
 def _chat_provider() -> tuple[str, str] | None:
@@ -20,7 +21,21 @@ def _chat_provider() -> tuple[str, str] | None:
     return None
 
 
-def get_chat_reply(user_message: str) -> str:
+def _sanitize_history(history: list[dict[str, str]] | None, *, limit: int = 20) -> list[dict[str, str]]:
+    if not history:
+        return []
+
+    cleaned: list[dict[str, str]] = []
+    for item in history[-limit:]:
+        role = str(item.get("role", "")).strip().lower()
+        content = str(item.get("content", "")).strip()
+        if role not in _ALLOWED_ROLES or not content:
+            continue
+        cleaned.append({"role": role, "content": content[:4000]})
+    return cleaned
+
+
+def get_chat_reply(user_message: str, *, history: list[dict[str, str]] | None = None) -> str:
     provider = _chat_provider()
     if provider is None:
         raise RuntimeError("No chat provider configured. Set GROQ_API_KEY.")
@@ -30,6 +45,19 @@ def get_chat_reply(user_message: str) -> str:
         "You are Calm AI's supportive assistant. Use warm, practical, non-clinical language. "
         "Avoid diagnosis or medical claims. Keep responses concise and meaningful."
     )
+    um = user_message.strip()[:4000]
+    if not um:
+        raise RuntimeError("Empty user message.")
+
+    chat_messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
+    prior = _sanitize_history(history)
+    # Frontend often includes the latest user turn in `history`; avoid sending it twice.
+    while prior and prior[-1]["role"] == "user" and prior[-1]["content"] == um:
+        prior = prior[:-1]
+    chat_messages.extend(prior)
+    # Always end with the current user message so the provider never gets a trailing assistant-only turn.
+    chat_messages.append({"role": "user", "content": um})
+
     try:
         resp = requests.post(
             f"{_GROQ_BASE_URL}/chat/completions",
@@ -39,10 +67,7 @@ def get_chat_reply(user_message: str) -> str:
             },
             json={
                 "model": model_name,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message},
-                ],
+                "messages": chat_messages,
                 "temperature": 0.7,
                 "max_tokens": 500,
             },
