@@ -10,4 +10,5 @@ joblib
 
 streamlit
 requests
+matplotlib
 
