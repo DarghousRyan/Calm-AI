@@ -10,16 +10,18 @@ Features:
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+import os
 from typing import Any
 
 import matplotlib.pyplot as plt
 import requests
 from requests import exceptions as requests_exceptions
+from dotenv import load_dotenv
 import streamlit as st
 
 
-#DEFAULT_BACKEND_URL = "http://127.0.0.1:8000"
 DEFAULT_BACKEND_URL = "https://calm-ai.onrender.com"
+load_dotenv()
 
 def _format_timestamp_hhmm(ts: str) -> str:
     """Format timestamp as HH:MM."""
@@ -137,7 +139,7 @@ def _plot_journey_chart(rows: list[dict[str, Any]], metric: str, label: str, col
     ax.set_ylabel(y_label)
     ax.grid(True, alpha=0.3)
     fig.autofmt_xdate()
-    st.pyplot(fig, use_container_width=True)
+    st.pyplot(fig, width="stretch")
     plt.close(fig)
 
 
@@ -178,46 +180,62 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+backend_url = _normalize_backend_url(os.environ.get("CALM_AI_BACKEND_URL", DEFAULT_BACKEND_URL))
+auth_token = st.session_state.get("auth_token")
+
+if not auth_token:
+    _, center, _ = st.columns([1, 1.5, 1])
+    with center:
+        st.title("Welcome to Calm AI", text_alignment="center")
+        st.caption("A private space for daily check-ins, reflection, and supportive guidance.", text_alignment="center")
+        with st.container(border=True):
+            st.subheader("Your wellness space", anchor=False)
+            st.write("Create an account or log in to keep your journey and conversations private.")
+            auth_mode = st.radio("Account action", ["Log in", "Create account"], horizontal=True)
+            with st.form("auth_form", enter_to_submit=False):
+                email = st.text_input("Email address", autocomplete="email")
+                password = st.text_input(
+                    "Password",
+                    type="password",
+                    help="Use at least 8 characters.",
+                    autocomplete="current-password" if auth_mode == "Log in" else "new-password",
+                )
+                submitted_auth = st.form_submit_button(
+                    "Log in" if auth_mode == "Log in" else "Create account",
+                    type="primary",
+                    width="stretch",
+                )
+            if submitted_auth:
+                endpoint = "/auth/login" if auth_mode == "Log in" else "/auth/register"
+                try:
+                    auth = _post_json(
+                        f"{backend_url}{endpoint}",
+                        {"email": email, "password": password},
+                        timeout_s=60.0,
+                    )
+                    access_token = auth.get("access_token")
+                    if not access_token:
+                        st.success(str(auth.get("message", "Account created. Check your email, then log in.")))
+                    else:
+                        st.session_state.auth_token = str(access_token)
+                        st.session_state.user_email = str(auth.get("email", email))
+                        st.session_state.pop("chat_loaded", None)
+                        st.rerun()
+                except (requests_exceptions.ConnectionError, requests_exceptions.Timeout):
+                    st.error("Calm AI is taking too long to respond. Please try again in a moment.")
+                except RuntimeError as e:
+                    st.error(str(e))
+            st.caption("Your check-ins, journey graphs, and conversations are saved to your account.")
+    st.stop()
+
 with st.sidebar:
-    st.header("Settings")
-    backend_url = _normalize_backend_url(
-        st.text_input("Backend URL", value=DEFAULT_BACKEND_URL, help="Where your FastAPI server is running.")
-    )
-    st.write("Tip: start the API with `uvicorn app.main:app --reload`.")
-
-    st.divider()
-    st.header("Account")
-    auth_token = st.session_state.get("auth_token")
-    if not auth_token:
-        auth_mode = st.radio("", ["Log in", "Create account"], horizontal=True, label_visibility="collapsed")
-        with st.form("auth_form"):
-            email = st.text_input("Email")
-            password = st.text_input("Password", type="password", help="Use at least 8 characters.")
-            submitted_auth = st.form_submit_button(auth_mode)
-        if submitted_auth:
-            endpoint = "/auth/login" if auth_mode == "Log in" else "/auth/register"
-            try:
-                auth = _post_json(f"{backend_url}{endpoint}", {"email": email, "password": password})
-                access_token = auth.get("access_token")
-                if not access_token:
-                    st.success(str(auth.get("message", "Account created. Check your email, then log in.")))
-                    st.stop()
-                st.session_state.auth_token = str(access_token)
-                st.session_state.user_email = str(auth.get("email", email))
-                st.session_state.pop("chat_loaded", None)
-                st.rerun()
-            except Exception as e:
-                st.error(str(e))
-        st.info("Log in to keep your check-ins, journey, and conversations private to your account.")
-        st.stop()
-
-    st.write(f"Signed in as **{st.session_state.get('user_email', 'user')}**")
-    if st.button("Log out"):
+    st.caption(f"Signed in as **{st.session_state.get('user_email', 'user')}**")
+    if st.button("Log out", icon=":material/logout:", width="stretch"):
         for key in ("auth_token", "user_email", "chat_messages", "chat_loaded"):
             st.session_state.pop(key, None)
         st.rerun()
 
-token = st.session_state.auth_token
+token = auth_token
 st.title("Calm AI")
 st.caption("Daily check-ins, supportive recommendations, and a side chatbot.")
 
