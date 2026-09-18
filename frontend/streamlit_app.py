@@ -37,8 +37,9 @@ def _normalize_backend_url(raw: str) -> str:
     return raw.rstrip("/")
 
 
-def _post_json(url: str, payload: dict[str, Any], *, timeout_s: float = 15.0) -> dict[str, Any]:
-    resp = requests.post(url, json=payload, timeout=timeout_s)
+def _post_json(url: str, payload: dict[str, Any], *, token: str | None = None, timeout_s: float = 15.0) -> dict[str, Any]:
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    resp = requests.post(url, json=payload, headers=headers, timeout=timeout_s)
     try:
         resp.raise_for_status()
     except requests.HTTPError as e:
@@ -51,8 +52,9 @@ def _post_json(url: str, payload: dict[str, Any], *, timeout_s: float = 15.0) ->
     return resp.json()
 
 
-def _get_json(url: str, *, timeout_s: float = 15.0) -> dict[str, Any]:
-    resp = requests.get(url, timeout=timeout_s)
+def _get_json(url: str, *, token: str | None = None, timeout_s: float = 15.0) -> dict[str, Any]:
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    resp = requests.get(url, headers=headers, timeout=timeout_s)
     try:
         resp.raise_for_status()
     except requests.HTTPError as e:
@@ -140,8 +142,6 @@ def _plot_journey_chart(rows: list[dict[str, Any]], metric: str, label: str, col
 
 
 st.set_page_config(page_title="Calm AI", layout="centered")
-st.title("Calm AI")
-st.caption("Daily check-ins, supportive recommendations, and a side chatbot.")
 st.markdown(
     """
     <style>
@@ -178,17 +178,60 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-if "chat_messages" not in st.session_state:
-    st.session_state.chat_messages = [
-        {"role": "assistant", "content": "Hi, I am here to listen. What is on your mind today?"}
-    ]
-
 with st.sidebar:
     st.header("Settings")
     backend_url = _normalize_backend_url(
         st.text_input("Backend URL", value=DEFAULT_BACKEND_URL, help="Where your FastAPI server is running.")
     )
     st.write("Tip: start the API with `uvicorn app.main:app --reload`.")
+
+    st.divider()
+    st.header("Account")
+    auth_token = st.session_state.get("auth_token")
+    if not auth_token:
+        auth_mode = st.radio("", ["Log in", "Create account"], horizontal=True, label_visibility="collapsed")
+        with st.form("auth_form"):
+            email = st.text_input("Email")
+            password = st.text_input("Password", type="password", help="Use at least 8 characters.")
+            submitted_auth = st.form_submit_button(auth_mode)
+        if submitted_auth:
+            endpoint = "/auth/login" if auth_mode == "Log in" else "/auth/register"
+            try:
+                auth = _post_json(f"{backend_url}{endpoint}", {"email": email, "password": password})
+                access_token = auth.get("access_token")
+                if not access_token:
+                    st.success(str(auth.get("message", "Account created. Check your email, then log in.")))
+                    st.stop()
+                st.session_state.auth_token = str(access_token)
+                st.session_state.user_email = str(auth.get("email", email))
+                st.session_state.pop("chat_loaded", None)
+                st.rerun()
+            except Exception as e:
+                st.error(str(e))
+        st.info("Log in to keep your check-ins, journey, and conversations private to your account.")
+        st.stop()
+
+    st.write(f"Signed in as **{st.session_state.get('user_email', 'user')}**")
+    if st.button("Log out"):
+        for key in ("auth_token", "user_email", "chat_messages", "chat_loaded"):
+            st.session_state.pop(key, None)
+        st.rerun()
+
+token = st.session_state.auth_token
+st.title("Calm AI")
+st.caption("Daily check-ins, supportive recommendations, and a side chatbot.")
+
+if "chat_messages" not in st.session_state:
+    st.session_state.chat_messages = []
+if not st.session_state.get("chat_loaded"):
+    try:
+        saved_chat = _get_json(f"{backend_url}/chat/history", token=token)
+        st.session_state.chat_messages = saved_chat.get("messages", []) or [
+            {"role": "assistant", "content": "Hi, I am here to listen. What is on your mind today?"}
+        ]
+        st.session_state.chat_loaded = True
+    except Exception as e:
+        st.error(f"Could not load your chat history: {e}")
 
 tab_checkin, tab_chat, tab_history, tab_journey = st.tabs(
     ["Check-in", "Chat", "Past check-ins", "Journey"]
@@ -257,11 +300,11 @@ with tab_checkin:
 
         try:
             try:
-                _post_json(checkins_url, daily_log_payload)
+                _post_json(checkins_url, daily_log_payload, token=token)
             except Exception as save_error:
                 st.warning(f"Check-in was not saved to history: {save_error}")
 
-            pred = _post_json(predict_url, daily_log_payload)
+            pred = _post_json(predict_url, daily_log_payload, token=token)
             risk_class = str(pred.get("risk_class", "unknown"))
             display_risk_class = _format_risk_label(risk_class)
 
@@ -287,7 +330,7 @@ with tab_checkin:
                 "latest_log": daily_log_payload,
                 "risk_level": risk_class,
             }
-            recs_resp = _post_json(recs_url, recs_payload)
+            recs_resp = _post_json(recs_url, recs_payload, token=token)
 
             st.subheader("Recommendations")
             top_disclaimer = recs_resp.get("disclaimer")
@@ -364,6 +407,7 @@ with tab_chat:
                         "message": prompt,
                         "history": history_payload,
                     },
+                    token=token,
                     timeout_s=45.0,
                 )
                 reply = str(chat_resp.get("reply", "")).strip() or "I could not generate a response right now."
@@ -383,7 +427,7 @@ with tab_history:
 
     try:
         history_url = f"{backend_url}/checkins?limit=100"
-        data = _get_json(history_url)
+        data = _get_json(history_url, token=token)
         rows = data.get("checkins", [])
         if not isinstance(rows, list) or not rows:
             st.info("No saved check-ins yet. Submit a daily log first.")
@@ -421,7 +465,7 @@ with tab_journey:
 
     try:
         history_url = f"{backend_url}/checkins?limit=365"
-        data = _get_json(history_url)
+        data = _get_json(history_url, token=token)
         rows = data.get("checkins", [])
         if not isinstance(rows, list) or not rows:
             st.info("No trend data yet. Submit check-ins to build your journey chart.")

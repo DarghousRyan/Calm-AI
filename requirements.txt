@@ -1,6 +1,7 @@
 fastapi
 uvicorn[standard]
 sqlalchemy
+psycopg[binary]
 pydantic
 
 numpy
@@ -11,4 +12,4 @@ joblib
 streamlit
 requests
 matplotlib
-
+python-dotenv

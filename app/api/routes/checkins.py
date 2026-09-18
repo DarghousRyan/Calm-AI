@@ -12,8 +12,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.api.auth import get_current_user
 from app.db.session import get_db
 from app.models.checkin import CheckInLog
+from app.models.user import User
 
 router = APIRouter(tags=["checkins"])
 
@@ -42,9 +44,9 @@ class CheckInListResponse(BaseModel):
 
 
 @router.post("/checkins", response_model=CheckInRead)
-def create_checkin(req: CheckInCreateRequest, db: Session = Depends(get_db)) -> CheckInRead:
+def create_checkin(req: CheckInCreateRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> CheckInRead:
     try:
-        row = CheckInLog(**req.model_dump())
+        row = CheckInLog(**req.model_dump(), user_id=user.id)
         db.add(row)
         db.commit()
         db.refresh(row)
@@ -55,10 +57,11 @@ def create_checkin(req: CheckInCreateRequest, db: Session = Depends(get_db)) -> 
 
 
 @router.get("/checkins", response_model=CheckInListResponse)
-def list_checkins(db: Session = Depends(get_db), limit: int = 100) -> CheckInListResponse:
+def list_checkins(db: Session = Depends(get_db), limit: int = 100, user: User = Depends(get_current_user)) -> CheckInListResponse:
     safe_limit = max(1, min(limit, 500))
     rows = (
         db.query(CheckInLog)
+        .filter(CheckInLog.user_id == user.id)
         .order_by(CheckInLog.log_date.desc(), CheckInLog.created_at.desc())
         .limit(safe_limit)
         .all()
