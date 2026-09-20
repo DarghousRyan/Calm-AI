@@ -39,19 +39,50 @@ def _normalize_backend_url(raw: str) -> str:
     return raw.rstrip("/")
 
 
+def _friendly_response_error(resp: requests.Response) -> str:
+    """Turn backend/API errors into messages that make sense to users."""
+    try:
+        body = resp.json()
+    except ValueError:
+        body = None
+
+    detail = body.get("detail") if isinstance(body, dict) else None
+    if isinstance(detail, list):
+        detail = "; ".join(
+            str(item.get("msg", item)) if isinstance(item, dict) else str(item)
+            for item in detail
+        )
+    detail = str(detail).strip() if detail else ""
+    normalized = detail.lower()
+
+    if resp.status_code == 400 and "invalid login credentials" in normalized:
+        return "The email or password is incorrect. If you just created your account, confirm your email first."
+    if resp.status_code == 429 or "rate limit" in normalized:
+        return "Too many requests right now. Please wait a little while and try again."
+    if resp.status_code == 401:
+        return "Your session has expired. Please log in again."
+    if resp.status_code == 403:
+        return "You do not have permission to do that."
+    if resp.status_code == 404:
+        return "Calm AI could not find that service. Please try again later."
+    if resp.status_code >= 500:
+        return "Calm AI is having trouble right now. Please try again in a moment."
+    if detail:
+        return detail
+    return "Calm AI could not complete that request. Please try again."
+
+
 def _post_json(url: str, payload: dict[str, Any], *, token: str | None = None, timeout_s: float = 15.0) -> dict[str, Any]:
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     resp = requests.post(url, json=payload, headers=headers, timeout=timeout_s)
     try:
         resp.raise_for_status()
     except requests.HTTPError as e:
-        msg = f"{e} (status={resp.status_code})"
-        try:
-            msg += f" body={resp.text}"
-        except Exception:
-            pass
-        raise RuntimeError(msg) from e
-    return resp.json()
+        raise RuntimeError(_friendly_response_error(resp)) from e
+    try:
+        return resp.json()
+    except ValueError as e:
+        raise RuntimeError("Calm AI returned an unexpected response. Please try again.") from e
 
 
 def _get_json(url: str, *, token: str | None = None, timeout_s: float = 15.0) -> dict[str, Any]:
@@ -60,13 +91,11 @@ def _get_json(url: str, *, token: str | None = None, timeout_s: float = 15.0) ->
     try:
         resp.raise_for_status()
     except requests.HTTPError as e:
-        msg = f"{e} (status={resp.status_code})"
-        try:
-            msg += f" body={resp.text}"
-        except Exception:
-            pass
-        raise RuntimeError(msg) from e
-    return resp.json()
+        raise RuntimeError(_friendly_response_error(resp)) from e
+    try:
+        return resp.json()
+    except ValueError as e:
+        raise RuntimeError("Calm AI returned an unexpected response. Please try again.") from e
 
 
 def _format_risk_label(raw: Any) -> str:
