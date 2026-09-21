@@ -211,6 +211,7 @@ st.markdown(
 
 backend_url = _normalize_backend_url(os.environ.get("CALM_AI_BACKEND_URL", DEFAULT_BACKEND_URL))
 auth_token = st.session_state.get("auth_token")
+st.session_state.setdefault("checkin_submitting", False)
 
 if not auth_token:
     _, center, _ = st.columns([1, 1.5, 1])
@@ -237,11 +238,12 @@ if not auth_token:
             if submitted_auth:
                 endpoint = "/auth/login" if auth_mode == "Log in" else "/auth/register"
                 try:
-                    auth = _post_json(
-                        f"{backend_url}{endpoint}",
-                        {"email": email, "password": password},
-                        timeout_s=60.0,
-                    )
+                    with st.spinner("Creating your account..." if auth_mode == "Create account" else "Signing you in..."):
+                        auth = _post_json(
+                            f"{backend_url}{endpoint}",
+                            {"email": email, "password": password},
+                            timeout_s=60.0,
+                        )
                     access_token = auth.get("access_token")
                     if not access_token:
                         st.success(str(auth.get("message", "Account created. Check your email, then log in.")))
@@ -323,7 +325,10 @@ with tab_checkin:
         with tcol3:
             trigger_conflict = st.checkbox("Conflict", value=False)
 
-        submitted = st.form_submit_button("Submit log")
+        submitted = st.form_submit_button(
+            "Saving..." if st.session_state.checkin_submitting else "Submit log",
+            disabled=st.session_state.checkin_submitting,
+        )
 
     st.header("Results")
     if submitted:
@@ -345,15 +350,17 @@ with tab_checkin:
         recs_url = f"{backend_url}/recommendations"
         checkins_url = f"{backend_url}/checkins"
 
+        st.session_state.checkin_submitting = True
         try:
-            try:
-                _post_json(checkins_url, daily_log_payload, token=token)
-            except Exception as save_error:
-                st.warning(f"Check-in was not saved to history: {save_error}")
+            with st.spinner("Saving your check-in and preparing recommendations..."):
+                try:
+                    _post_json(checkins_url, daily_log_payload, token=token)
+                except Exception as save_error:
+                    st.warning(f"Your results are ready, but the check-in was not saved: {save_error}")
 
-            pred = _post_json(predict_url, daily_log_payload, token=token)
-            risk_class = str(pred.get("risk_class", "unknown"))
-            display_risk_class = _format_risk_label(risk_class)
+                pred = _post_json(predict_url, daily_log_payload, token=token)
+                risk_class = str(pred.get("risk_class", "unknown"))
+                display_risk_class = _format_risk_label(risk_class)
 
             st.subheader("Predicted risk")
             st.write(f"**{display_risk_class}**")
@@ -417,6 +424,8 @@ with tab_checkin:
         except Exception as e:
             st.error("Could not get results from the backend.")
             st.code(str(e))
+        finally:
+            st.session_state.checkin_submitting = False
     else:
         st.info("Submit a daily log to see predicted risk and recommendations.")
 
