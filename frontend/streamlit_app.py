@@ -172,16 +172,25 @@ def _plot_journey_chart(rows: list[dict[str, Any]], metric: str, label: str, col
     plt.close(fig)
 
 
-st.set_page_config(page_title="Calm AI", layout="centered")
+st.set_page_config(
+    page_title="Calm AI",
+    page_icon=":material/self_improvement:",
+    layout="wide",
+)
 st.markdown(
     """
     <style>
     .stApp {
-        background-color: #F7FAFC;
+        background: linear-gradient(135deg, #F5F8FF 0%, #F8FBFA 55%, #FFF9F3 100%);
         color: #1F2937;
     }
+    [data-testid="stMainBlockContainer"] {
+        max-width: 1160px;
+        padding-top: 2.5rem;
+        padding-bottom: 4rem;
+    }
     [data-testid="stSidebar"] {
-        background-color: #EAF1FF;
+        background: linear-gradient(180deg, #EAF1FF 0%, #F3F6FF 100%);
         border-right: 1px solid #D5E4FF;
     }
     [data-testid="stTabs"] button[aria-selected="true"] {
@@ -193,6 +202,44 @@ st.markdown(
         background-color: #FFFFFF;
         border: 1px solid #DCE9FF;
         border-radius: 12px;
+        box-shadow: 0 4px 16px rgba(57, 86, 128, 0.06);
+    }
+    div[data-testid="stForm"] {
+        border-color: #DCE9FF;
+        border-radius: 18px;
+        box-shadow: 0 8px 24px rgba(57, 86, 128, 0.06);
+    }
+    .calm-hero {
+        padding: 2.2rem 2.4rem;
+        margin-bottom: 1.5rem;
+        border: 1px solid #DCE9FF;
+        border-radius: 24px;
+        background: linear-gradient(135deg, rgba(255,255,255,0.9), rgba(236,244,255,0.85));
+        box-shadow: 0 12px 32px rgba(57, 86, 128, 0.08);
+    }
+    .calm-kicker {
+        color: #2F6FED;
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        margin-bottom: 0.6rem;
+    }
+    .calm-hero h1 {
+        color: #17233B;
+        font-size: 2.6rem;
+        margin: 0 0 0.5rem 0;
+    }
+    .calm-hero p {
+        color: #63708A;
+        font-size: 1.05rem;
+        margin: 0;
+    }
+    .calm-section-note {
+        color: #68758C;
+        font-size: 0.95rem;
+        margin-top: -0.5rem;
+        margin-bottom: 1rem;
     }
     div.stButton > button {
         background-color: #2F6FED;
@@ -216,10 +263,18 @@ st.session_state.setdefault("checkin_submitting", False)
 if not auth_token:
     _, center, _ = st.columns([1, 1.5, 1])
     with center:
-        st.title("Welcome to Calm AI", text_alignment="center")
-        st.caption("A private space for daily check-ins, reflection, and supportive guidance.", text_alignment="center")
+        st.markdown(
+            """
+            <div class="calm-hero">
+                <div class="calm-kicker">A calmer place to begin</div>
+                <h1>Welcome to Calm AI</h1>
+                <p>A private space for daily check-ins, reflection, and supportive guidance.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         with st.container(border=True):
-            st.subheader("Your wellness space", anchor=False)
+            st.subheader("Your wellness space", anchor=False, icon=":material/self_improvement:")
             st.write("Create an account or log in to keep your journey and conversations private.")
             auth_mode = st.radio("Account action", ["Log in", "Create account"], horizontal=True)
             with st.form("auth_form", enter_to_submit=False):
@@ -267,8 +322,16 @@ with st.sidebar:
         st.rerun()
 
 token = auth_token
-st.title("Calm AI")
-st.caption("Daily check-ins, supportive recommendations, and a side chatbot.")
+st.markdown(
+    """
+    <div class="calm-hero">
+        <div class="calm-kicker">Your private wellness space</div>
+        <h1>Small check-ins. Steadier progress.</h1>
+        <p>Notice what is affecting you today, then turn that insight into one supportive next step.</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 if "chat_messages" not in st.session_state:
     st.session_state.chat_messages = []
@@ -288,8 +351,12 @@ tab_checkin, tab_chat, tab_history, tab_journey = st.tabs(
 
 
 with tab_checkin:
-    st.header("Daily log")
-    with st.form("daily_log_form", clear_on_submit=False):
+    st.header("Daily check-in", icon=":material/edit_note:")
+    st.markdown(
+        '<div class="calm-section-note">A quick snapshot of how today feels. There are no perfect answers.</div>',
+        unsafe_allow_html=True,
+    )
+    with st.form("daily_log_form", clear_on_submit=False, border=True):
         col1, col2 = st.columns(2)
 
         with col1:
@@ -328,9 +395,10 @@ with tab_checkin:
         submitted = st.form_submit_button(
             "Saving..." if st.session_state.checkin_submitting else "Submit log",
             disabled=st.session_state.checkin_submitting,
+            icon=":material/arrow_forward:" if not st.session_state.checkin_submitting else ":material/hourglass_top:",
         )
 
-    st.header("Results")
+    st.header("Your reflection", icon=":material/insights:")
     if submitted:
         daily_log_payload: dict[str, Any] = {
             "log_date": log_date.isoformat(),
@@ -362,23 +430,31 @@ with tab_checkin:
                 risk_class = str(pred.get("risk_class", "unknown"))
                 display_risk_class = _format_risk_label(risk_class)
 
-            st.subheader("Predicted risk")
-            st.write(f"**{display_risk_class}**")
+            risk_color = {"Low": "green", "Medium": "orange", "High": "red"}.get(display_risk_class, "blue")
+            with st.container(border=True):
+                st.subheader("Estimated relapse risk", anchor=False, icon=":material/monitor_heart:")
+                st.caption("A model estimate based on the patterns in today’s check-in—not a diagnosis or certainty.")
+                risk_col, context_col = st.columns([1, 2])
+                with risk_col:
+                    st.badge(display_risk_class, icon=":material/insights:", color=risk_color)
+                with context_col:
+                    st.write("This is a signal to help you choose a supportive next step, not a label for you.")
 
             probs = pred.get("risk_probabilities")
             if isinstance(probs, dict):
-                st.caption("Probabilities")
-                prob_rows = _normalize_probabilities(probs)
-                if prob_rows:
-                    for label, prob in prob_rows:
-                        left, right = st.columns([3, 1])
-                        with left:
-                            st.write(f"**{label}**")
-                            st.progress(prob)
-                        with right:
-                            st.write(f"{prob * 100:.2f}%")
-                else:
-                    st.write("No probability values available.")
+                with st.expander("See the model estimate details", icon=":material/bar_chart:"):
+                    st.caption("These percentages reflect the model’s estimated class probabilities.")
+                    prob_rows = _normalize_probabilities(probs)
+                    if prob_rows:
+                        for label, prob in prob_rows:
+                            left, right = st.columns([3, 1])
+                            with left:
+                                st.write(f"**{label}**")
+                                st.progress(prob)
+                            with right:
+                                st.write(f"{prob * 100:.2f}%")
+                    else:
+                        st.write("No probability values available.")
 
             recs_payload = {
                 "latest_log": daily_log_payload,
@@ -386,7 +462,7 @@ with tab_checkin:
             }
             recs_resp = _post_json(recs_url, recs_payload, token=token)
 
-            st.subheader("Recommendations")
+            st.subheader("A few supportive next steps", anchor=False, icon=":material/lightbulb:")
             top_disclaimer = recs_resp.get("disclaimer")
             if isinstance(top_disclaimer, str) and top_disclaimer.strip():
                 st.caption(top_disclaimer)
