@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 import os
+import time
 from typing import Any
 
 import matplotlib.pyplot as plt
@@ -18,6 +19,7 @@ import requests
 from requests import exceptions as requests_exceptions
 from dotenv import load_dotenv
 import streamlit as st
+from streamlit_cookies_controller import CookieController, RemoveEmptyElementContainer
 
 
 DEFAULT_BACKEND_URL = "https://calm-ai.onrender.com"
@@ -115,6 +117,64 @@ def _normalize_probabilities(raw_probs: dict[str, Any]) -> list[tuple[str, float
     return rows
 
 
+def _render_checkin_result(result: dict[str, Any]) -> None:
+    """Render the latest prediction and recommendations on every rerun."""
+    pred = result.get("prediction") or {}
+    recs_resp = result.get("recommendations") or {}
+    risk_class = str(pred.get("risk_class", "unknown"))
+    display_risk_class = _format_risk_label(risk_class)
+
+    risk_color = {"Low": "green", "Medium": "orange", "High": "red"}.get(display_risk_class, "blue")
+    with st.container(border=True):
+        st.subheader("Estimated relapse risk", anchor=False, icon=":material/monitor_heart:")
+        st.caption("A model estimate based on the patterns in today’s check-in—not a diagnosis or certainty.")
+        risk_col, context_col = st.columns([1, 2])
+        with risk_col:
+            st.badge(display_risk_class, icon=":material/insights:", color=risk_color)
+        with context_col:
+            st.write("This is a signal to help you choose a supportive next step, not a label for you.")
+
+    probs = pred.get("risk_probabilities")
+    if isinstance(probs, dict):
+        with st.expander("See the model estimate details", icon=":material/bar_chart:"):
+            st.caption("These percentages reflect the model’s estimated class probabilities.")
+            prob_rows = _normalize_probabilities(probs)
+            if prob_rows:
+                for label, prob in prob_rows:
+                    left, right = st.columns([3, 1])
+                    with left:
+                        st.write(f"**{label}**")
+                        st.progress(prob)
+                    with right:
+                        st.write(f"{prob * 100:.2f}%")
+            else:
+                st.write("No probability values available.")
+
+    st.subheader("A few supportive next steps", anchor=False, icon=":material/lightbulb:")
+    top_disclaimer = recs_resp.get("disclaimer")
+    if isinstance(top_disclaimer, str) and top_disclaimer.strip():
+        st.caption(top_disclaimer)
+
+    recs = recs_resp.get("recommendations")
+    if isinstance(recs, list) and recs:
+        for i, item in enumerate(recs, start=1):
+            title = str(item.get("title", f"Suggestion {i}"))
+            suggestion = str(item.get("suggestion", ""))
+            explanation = str(item.get("explanation", ""))
+            disclaimer = str(item.get("disclaimer", ""))
+
+            st.markdown(f"**{i}. {title}**")
+            if suggestion:
+                st.write(suggestion)
+            if explanation:
+                st.caption(explanation)
+            if (not top_disclaimer) and disclaimer:
+                st.caption(disclaimer)
+            st.divider()
+    else:
+        st.info("No recommendations returned yet.")
+
+
 def _to_float(value: Any) -> float | None:
     try:
         return float(value)
@@ -177,6 +237,8 @@ st.set_page_config(
     page_icon=":material/self_improvement:",
     layout="wide",
 )
+cookie_controller = CookieController(key="calm_ai_auth")
+RemoveEmptyElementContainer()
 st.markdown(
     """
     <style>
@@ -257,8 +319,52 @@ st.markdown(
 )
 
 backend_url = _normalize_backend_url(os.environ.get("CALM_AI_BACKEND_URL", DEFAULT_BACKEND_URL))
-auth_token = st.session_state.get("auth_token")
+st.session_state.setdefault("latest_checkin_result", None)
 st.session_state.setdefault("checkin_submitting", False)
+
+# Cookie components communicate with the browser asynchronously. Give the
+# component a moment to return existing cookies after a full page refresh.
+auth_cookies = cookie_controller.getAll() or {}
+if not auth_cookies and not st.session_state.get("auth_cookie_checked"):
+    time.sleep(0.5)
+    auth_cookies = cookie_controller.getAll() or {}
+st.session_state.auth_cookie_checked = True
+
+if not st.session_state.get("auth_token"):
+    stored_access_token = auth_cookies.get("calm_ai_access_token")
+    stored_refresh_token = auth_cookies.get("calm_ai_refresh_token")
+    stored_email = auth_cookies.get("calm_ai_user_email")
+
+    if stored_access_token:
+        try:
+            me = _get_json(f"{backend_url}/auth/me", token=str(stored_access_token), timeout_s=10.0)
+            st.session_state.auth_token = str(stored_access_token)
+            st.session_state.user_email = str(me.get("email", stored_email or "user"))
+        except (RuntimeError, requests_exceptions.RequestException):
+            if stored_refresh_token:
+                try:
+                    refreshed = _post_json(
+                        f"{backend_url}/auth/refresh",
+                        {"refresh_token": str(stored_refresh_token)},
+                        timeout_s=15.0,
+                    )
+                    refreshed_access = refreshed.get("access_token")
+                    if refreshed_access:
+                        st.session_state.auth_token = str(refreshed_access)
+                        st.session_state.user_email = str(refreshed.get("email", stored_email or "user"))
+                        cookie_controller.set("calm_ai_access_token", str(refreshed_access), max_age=7 * 24 * 60 * 60)
+                        if refreshed.get("refresh_token"):
+                            cookie_controller.set(
+                                "calm_ai_refresh_token",
+                                str(refreshed["refresh_token"]),
+                                max_age=30 * 24 * 60 * 60,
+                            )
+                except (RuntimeError, requests_exceptions.RequestException):
+                    cookie_controller.remove("calm_ai_access_token")
+                    cookie_controller.remove("calm_ai_refresh_token")
+                    cookie_controller.remove("calm_ai_user_email")
+
+auth_token = st.session_state.get("auth_token")
 
 if not auth_token:
     _, center, _ = st.columns([1, 1.5, 1])
@@ -277,48 +383,81 @@ if not auth_token:
             st.subheader("Your wellness space", anchor=False, icon=":material/self_improvement:")
             st.write("Create an account or log in to keep your journey and conversations private.")
             auth_mode = st.radio("Account action", ["Log in", "Create account"], horizontal=True)
-            with st.form("auth_form", enter_to_submit=False):
-                email = st.text_input("Email address", autocomplete="email")
-                password = st.text_input(
-                    "Password",
+        with st.form("auth_form", enter_to_submit=True):
+            email = st.text_input("Email address", autocomplete="email")
+            password = st.text_input(
+                "Password",
+                type="password",
+                help="Use at least 8 characters.",
+                autocomplete="current-password" if auth_mode == "Log in" else "new-password",
+            )
+            password_confirmation = ""
+            if auth_mode == "Create account":
+                password_confirmation = st.text_input(
+                    "Re-type password",
                     type="password",
-                    help="Use at least 8 characters.",
-                    autocomplete="current-password" if auth_mode == "Log in" else "new-password",
+                    help="Re-enter the same password to confirm it.",
+                    autocomplete="new-password",
                 )
-                submitted_auth = st.form_submit_button(
-                    "Log in" if auth_mode == "Log in" else "Create account",
-                    type="primary",
-                    width="stretch",
-                )
+            submitted_auth = st.form_submit_button(
+                "Log in" if auth_mode == "Log in" else "Create account",
+                type="primary",
+                width="stretch",
+            )
             if submitted_auth:
-                endpoint = "/auth/login" if auth_mode == "Log in" else "/auth/register"
-                try:
-                    with st.spinner("Creating your account..." if auth_mode == "Create account" else "Signing you in..."):
-                        auth = _post_json(
-                            f"{backend_url}{endpoint}",
-                            {"email": email, "password": password},
-                            timeout_s=60.0,
-                        )
-                    access_token = auth.get("access_token")
-                    if not access_token:
-                        st.success(str(auth.get("message", "Account created. Check your email, then log in.")))
-                    else:
-                        st.session_state.auth_token = str(access_token)
-                        st.session_state.user_email = str(auth.get("email", email))
-                        st.session_state.pop("chat_loaded", None)
-                        st.rerun()
-                except (requests_exceptions.ConnectionError, requests_exceptions.Timeout):
-                    st.error("Calm AI is taking too long to respond. Please try again in a moment.")
-                except RuntimeError as e:
-                    st.error(str(e))
+                if auth_mode == "Create account" and password != password_confirmation:
+                    st.error("The passwords do not match. Please re-type the same password in both fields.")
+                else:
+                    endpoint = "/auth/login" if auth_mode == "Log in" else "/auth/register"
+                    try:
+                        with st.spinner("Creating your account..." if auth_mode == "Create account" else "Signing you in..."):
+                            auth = _post_json(
+                                f"{backend_url}{endpoint}",
+                                {"email": email, "password": password},
+                                timeout_s=60.0,
+                            )
+                        access_token = auth.get("access_token")
+                        if not access_token:
+                            st.success(str(auth.get("message", "Account created. Check your email, then log in.")))
+                        else:
+                            st.session_state.auth_token = str(access_token)
+                            st.session_state.user_email = str(auth.get("email", email))
+                            cookie_controller.set(
+                                "calm_ai_access_token",
+                                str(access_token),
+                                max_age=7 * 24 * 60 * 60,
+                            )
+                            if auth.get("refresh_token"):
+                                cookie_controller.set(
+                                    "calm_ai_refresh_token",
+                                    str(auth["refresh_token"]),
+                                    max_age=30 * 24 * 60 * 60,
+                                )
+                            cookie_controller.set(
+                                "calm_ai_user_email",
+                                str(auth.get("email", email)),
+                                max_age=30 * 24 * 60 * 60,
+                            )
+                            # Allow the browser component to finish writing the
+                            # cookies before Streamlit starts a fresh run.
+                            time.sleep(1.0)
+                            st.session_state.pop("chat_loaded", None)
+                            st.rerun()
+                    except (requests_exceptions.ConnectionError, requests_exceptions.Timeout):
+                        st.error("Calm AI is taking too long to respond. Please try again in a moment.")
+                    except RuntimeError as e:
+                        st.error(str(e))
             st.caption("Your check-ins, journey graphs, and conversations are saved to your account.")
     st.stop()
 
 with st.sidebar:
     st.caption(f"Signed in as **{st.session_state.get('user_email', 'user')}**")
     if st.button("Log out", icon=":material/logout:", width="stretch"):
-        for key in ("auth_token", "user_email", "chat_messages", "chat_loaded"):
+        for key in ("auth_token", "user_email", "chat_messages", "chat_loaded", "latest_checkin_result"):
             st.session_state.pop(key, None)
+        cookie_controller.remove("calm_ai_access_token")
+        cookie_controller.remove("calm_ai_refresh_token")
+        cookie_controller.remove("calm_ai_user_email")
         st.rerun()
 
 token = auth_token
@@ -428,63 +567,16 @@ with tab_checkin:
 
                 pred = _post_json(predict_url, daily_log_payload, token=token)
                 risk_class = str(pred.get("risk_class", "unknown"))
-                display_risk_class = _format_risk_label(risk_class)
-
-            risk_color = {"Low": "green", "Medium": "orange", "High": "red"}.get(display_risk_class, "blue")
-            with st.container(border=True):
-                st.subheader("Estimated relapse risk", anchor=False, icon=":material/monitor_heart:")
-                st.caption("A model estimate based on the patterns in today’s check-in—not a diagnosis or certainty.")
-                risk_col, context_col = st.columns([1, 2])
-                with risk_col:
-                    st.badge(display_risk_class, icon=":material/insights:", color=risk_color)
-                with context_col:
-                    st.write("This is a signal to help you choose a supportive next step, not a label for you.")
-
-            probs = pred.get("risk_probabilities")
-            if isinstance(probs, dict):
-                with st.expander("See the model estimate details", icon=":material/bar_chart:"):
-                    st.caption("These percentages reflect the model’s estimated class probabilities.")
-                    prob_rows = _normalize_probabilities(probs)
-                    if prob_rows:
-                        for label, prob in prob_rows:
-                            left, right = st.columns([3, 1])
-                            with left:
-                                st.write(f"**{label}**")
-                                st.progress(prob)
-                            with right:
-                                st.write(f"{prob * 100:.2f}%")
-                    else:
-                        st.write("No probability values available.")
 
             recs_payload = {
                 "latest_log": daily_log_payload,
                 "risk_level": risk_class,
             }
             recs_resp = _post_json(recs_url, recs_payload, token=token)
-
-            st.subheader("A few supportive next steps", anchor=False, icon=":material/lightbulb:")
-            top_disclaimer = recs_resp.get("disclaimer")
-            if isinstance(top_disclaimer, str) and top_disclaimer.strip():
-                st.caption(top_disclaimer)
-
-            recs = recs_resp.get("recommendations")
-            if isinstance(recs, list) and recs:
-                for i, item in enumerate(recs, start=1):
-                    title = str(item.get("title", f"Suggestion {i}"))
-                    suggestion = str(item.get("suggestion", ""))
-                    explanation = str(item.get("explanation", ""))
-                    disclaimer = str(item.get("disclaimer", ""))
-
-                    st.markdown(f"**{i}. {title}**")
-                    if suggestion:
-                        st.write(suggestion)
-                    if explanation:
-                        st.caption(explanation)
-                    if (not top_disclaimer) and disclaimer:
-                        st.caption(disclaimer)
-                    st.divider()
-            else:
-                st.info("No recommendations returned yet.")
+            st.session_state.latest_checkin_result = {
+                "prediction": pred,
+                "recommendations": recs_resp,
+            }
 
         except (requests_exceptions.ConnectionError, requests_exceptions.Timeout) as e:
             st.error(
@@ -502,7 +594,10 @@ with tab_checkin:
             st.code(str(e))
         finally:
             st.session_state.checkin_submitting = False
-    else:
+
+    if st.session_state.get("latest_checkin_result"):
+        _render_checkin_result(st.session_state.latest_checkin_result)
+    elif not submitted:
         st.info("Submit a daily log to see predicted risk and recommendations.")
 
 

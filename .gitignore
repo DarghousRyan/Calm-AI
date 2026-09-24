@@ -5,4 +5,7 @@
 __pycache__/
 *.py[cod]
 calm_ai.db
+*.db
+*.sqlite
+*.sqlite3
 app/ml/artifacts/

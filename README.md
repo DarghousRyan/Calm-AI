@@ -99,6 +99,51 @@ Useful endpoints:
 - `POST /ml/predict`
 - `POST /recommendations`
 
+### Run the API with Docker
+
+Build the backend image from the project root:
+
+```bash
+docker build -t calm-ai-api .
+```
+
+Run it locally. Pass environment variables at runtime; never copy `.env` into
+the image:
+
+```bash
+docker run --rm --name calm-ai-api \
+  --env-file .env \
+  -p 8000:8000 \
+  calm-ai-api
+```
+
+Then confirm it is running at `http://127.0.0.1:8000/health`.
+
+The container listens on `0.0.0.0` and uses the platform-provided `PORT` value
+when one is available, so the same image can be deployed to Render, Cloud Run,
+or another container platform.
+
+### Run the backend and frontend together with Docker Compose
+
+Make sure `.env` exists in the project root, then run:
+
+```bash
+docker compose up --build
+```
+
+Open the Streamlit app at `http://127.0.0.1:8501`. The frontend reaches the
+backend through the Compose service name `backend`; you do not need to expose
+or enter the backend URL in the frontend.
+
+Stop the services with:
+
+```bash
+docker compose down
+```
+
+Compose passes secrets from `.env` at runtime. They are not copied into either
+Docker image.
+
 
 ### Run the Streamlit UI
 

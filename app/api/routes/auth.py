@@ -18,6 +18,7 @@ class Credentials(BaseModel):
 
 class AuthResponse(BaseModel):
     access_token: str | None = None
+    refresh_token: str | None = None
     token_type: str = "bearer"
     user_id: int
     email: str
@@ -37,7 +38,12 @@ def register(req: Credentials, db: Session = Depends(get_db)) -> AuthResponse:
             message="Account created. Check your email to confirm your account, then log in.",
         )
     user = get_or_create_local_user(db, supabase_user)
-    return AuthResponse(access_token=access_token, user_id=user.id, email=user.email)
+    return AuthResponse(
+        access_token=access_token,
+        refresh_token=payload.get("refresh_token"),
+        user_id=user.id,
+        email=user.email,
+    )
 
 
 @router.post("/login", response_model=AuthResponse)
@@ -48,7 +54,34 @@ def login(req: Credentials, db: Session = Depends(get_db)) -> AuthResponse:
     if not access_token:
         raise HTTPException(status_code=401, detail="Supabase did not return a login token")
     user = get_or_create_local_user(db, payload.get("user") or {})
-    return AuthResponse(access_token=access_token, user_id=user.id, email=user.email)
+    return AuthResponse(
+        access_token=access_token,
+        refresh_token=payload.get("refresh_token"),
+        user_id=user.id,
+        email=user.email,
+    )
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str = Field(..., min_length=1)
+
+
+@router.post("/refresh", response_model=AuthResponse)
+def refresh(req: RefreshRequest, db: Session = Depends(get_db)) -> AuthResponse:
+    payload = supabase_auth_request(
+        "token?grant_type=refresh_token",
+        {"refresh_token": req.refresh_token},
+    )
+    access_token = str(payload.get("access_token", ""))
+    if not access_token:
+        raise HTTPException(status_code=401, detail="Supabase did not return a refreshed login token")
+    user = get_or_create_local_user(db, payload.get("user") or {})
+    return AuthResponse(
+        access_token=access_token,
+        refresh_token=payload.get("refresh_token", req.refresh_token),
+        user_id=user.id,
+        email=user.email,
+    )
 
 
 @router.get("/me", response_model=AuthResponse)

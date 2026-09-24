@@ -13,3 +13,4 @@ streamlit
 requests
 matplotlib
 python-dotenv
+streamlit-cookies-controller==0.0.4
