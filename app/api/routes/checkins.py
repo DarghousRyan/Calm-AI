@@ -31,6 +31,7 @@ class CheckInCreateRequest(BaseModel):
     trigger_boredom: int = Field(0, ge=0, le=1)
     trigger_loneliness: int = Field(0, ge=0, le=1)
     trigger_conflict: int = Field(0, ge=0, le=1)
+    custom_trigger: str | None = Field(None, max_length=500)
     days_since_last_relapse: int = Field(..., ge=0, le=36500)
 
 
@@ -46,18 +47,8 @@ class CheckInListResponse(BaseModel):
 @router.post("/checkins", response_model=CheckInRead)
 def create_checkin(req: CheckInCreateRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> CheckInRead:
     try:
-        # A daily log is one check-in per user per date. Returning the existing
-        # row makes repeated browser submissions idempotent instead of creating
-        # duplicate history entries when a request feels slow.
-        existing = (
-            db.query(CheckInLog)
-            .filter(CheckInLog.user_id == user.id, CheckInLog.log_date == req.log_date)
-            .order_by(CheckInLog.created_at.asc(), CheckInLog.id.asc())
-            .first()
-        )
-        if existing is not None:
-            return CheckInRead(**existing.__dict__)
-
+        # Multiple check-ins per user per day are intentional. The frontend
+        # groups them by date and presents the newest entry first.
         row = CheckInLog(**req.model_dump(), user_id=user.id)
         db.add(row)
         db.commit()

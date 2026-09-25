@@ -36,3 +36,8 @@ def init_db(engine: Engine) -> None:
         if "supabase_user_id" not in columns:
             with engine.begin() as connection:
                 connection.execute(text("ALTER TABLE users ADD COLUMN supabase_user_id VARCHAR(128)"))
+    if "checkin_logs" in inspect(engine).get_table_names():
+        columns = {column["name"] for column in inspect(engine).get_columns("checkin_logs")}
+        if "custom_trigger" not in columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE checkin_logs ADD COLUMN custom_trigger VARCHAR(500)"))

@@ -126,8 +126,8 @@ def _render_checkin_result(result: dict[str, Any]) -> None:
 
     risk_color = {"Low": "green", "Medium": "orange", "High": "red"}.get(display_risk_class, "blue")
     with st.container(border=True):
-        st.subheader("Estimated relapse risk", anchor=False, icon=":material/monitor_heart:")
-        st.caption("A model estimate based on the patterns in today’s check-in—not a diagnosis or certainty.")
+        st.subheader("Estimated likelihood of returning to the habit", anchor=False, icon=":material/monitor_heart:")
+        st.caption("A model estimate based on today’s check-in—not a diagnosis or certainty.")
         risk_col, context_col = st.columns([1, 2])
         with risk_col:
             st.badge(display_risk_class, icon=":material/insights:", color=risk_color)
@@ -175,6 +175,103 @@ def _render_checkin_result(result: dict[str, Any]) -> None:
         st.info("No recommendations returned yet.")
 
 
+def _render_app_guide() -> None:
+    """Explain the app's purpose and the first steps for new users."""
+    if not st.session_state.get("show_app_guide", True):
+        return
+
+    with st.container(border=True):
+        st.subheader("How Calm AI works", anchor=False, icon=":material/help_outline:")
+        st.write(
+            "Calm AI gives you a private place to reflect on daily habits, notice patterns, "
+            "and choose a supportive next step."
+        )
+
+        step_one, step_two, step_three = st.columns(3)
+        with step_one:
+            st.markdown("**1. Check in**")
+            st.caption("Record how you feel today, including stress, cravings, sleep, and possible triggers.")
+        with step_two:
+            st.markdown("**2. Review your reflection**")
+            st.caption("Calm AI estimates how likely today’s pattern may be to lead back to the habit.")
+        with step_three:
+            st.markdown("**3. Keep building awareness**")
+            st.caption("Use recommendations, past check-ins, journey trends, and chat to support your progress.")
+
+        st.info(
+            "The estimate is a guidance tool—not a diagnosis, a judgment, or a guarantee. "
+            "You are always in control of what you share and what you do next.",
+            icon=":material/health_and_safety:",
+        )
+        if st.button("Got it", icon=":material/check:"):
+            st.session_state.show_app_guide = False
+            st.rerun()
+
+
+def _render_public_overview() -> None:
+    """Explain Calm AI to visitors before asking them to create an account."""
+    st.subheader("A private space to understand your patterns", anchor=False, icon=":material/self_improvement:")
+    st.write(
+        "Calm AI helps you reflect on daily habits, notice what may affect your progress, "
+        "and choose a supportive next step. It is designed for ongoing self-awareness—not judgment."
+    )
+
+    reflect_col, notice_col, support_col = st.columns(3)
+    with reflect_col:
+        st.markdown("**Reflect**")
+        st.caption("Complete a short daily check-in about your mood, sleep, stress, cravings, and triggers.")
+    with notice_col:
+        st.markdown("**Notice patterns**")
+        st.caption("Review your past check-ins and journey trends to see how your experiences change over time.")
+    with support_col:
+        st.markdown("**Find support**")
+        st.caption("Receive a plain-language estimate and practical suggestions for your next step.")
+
+    st.info(
+        "Calm AI is a reflection and habit-support tool. It is not a doctor, therapist, diagnosis, "
+        "or guarantee about what will happen.",
+        icon=":material/health_and_safety:",
+    )
+
+
+def _render_history_checkin(row: dict[str, Any]) -> None:
+    """Render one saved check-in, including its recorded triggers."""
+    c1, c2, c3 = st.columns(3)
+    c1.write(f"Stress: {row.get('stress', 'n/a')}")
+    c2.write(f"Craving: {row.get('craving', 'n/a')}")
+    c3.write(f"Sleep: {row.get('sleep_hours', 'n/a')} hrs")
+
+    st.caption(
+        "Exercise: "
+        f"{row.get('exercise_minutes', 'n/a')} min | "
+        "Social: "
+        f"{row.get('social_interaction', 'n/a')} min | "
+        "Days since relapse: "
+        f"{row.get('days_since_last_relapse', 'n/a')}"
+    )
+
+    trigger_labels = [
+        label
+        for label, key in (
+            ("Boredom", "trigger_boredom"),
+            ("Loneliness", "trigger_loneliness"),
+            ("Conflict", "trigger_conflict"),
+        )
+        if row.get(key)
+    ]
+    custom_trigger = str(row.get("custom_trigger") or "").strip()
+    if custom_trigger:
+        trigger_labels.append(f"Other: {custom_trigger}")
+
+    if trigger_labels:
+        st.caption("Triggers: " + " · ".join(trigger_labels))
+    else:
+        st.caption("Triggers: None recorded")
+
+    created_at = _format_timestamp_hhmm(str(row.get("created_at", "")))
+    st.caption(f"Saved at {created_at}")
+
+
 def _to_float(value: Any) -> float | None:
     try:
         return float(value)
@@ -183,8 +280,17 @@ def _to_float(value: Any) -> float | None:
 
 
 def _prepare_journey_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    prepared: list[dict[str, Any]] = []
+    """Prepare one chart point per date using that date's newest check-in."""
+    latest_by_day: dict[str, dict[str, Any]] = {}
+    # The API returns rows newest-first by date and creation time. Keeping the
+    # first row for each date makes the chart represent the latest daily state.
     for row in rows:
+        raw_day = str(row.get("log_date", "")).strip()
+        if raw_day and raw_day not in latest_by_day:
+            latest_by_day[raw_day] = row
+
+    prepared: list[dict[str, Any]] = []
+    for row in latest_by_day.values():
         raw_day = str(row.get("log_date", "")).strip()
         if not raw_day:
             continue
@@ -379,75 +485,82 @@ if not auth_token:
             """,
             unsafe_allow_html=True,
         )
-        with st.container(border=True):
-            st.subheader("Your wellness space", anchor=False, icon=":material/self_improvement:")
-            st.write("Create an account or log in to keep your journey and conversations private.")
-            auth_mode = st.radio("Account action", ["Log in", "Create account"], horizontal=True)
-        with st.form("auth_form", enter_to_submit=True):
-            email = st.text_input("Email address", autocomplete="email")
-            password = st.text_input(
-                "Password",
-                type="password",
-                help="Use at least 8 characters.",
-                autocomplete="current-password" if auth_mode == "Log in" else "new-password",
-            )
-            password_confirmation = ""
-            if auth_mode == "Create account":
-                password_confirmation = st.text_input(
-                    "Re-type password",
-                    type="password",
-                    help="Re-enter the same password to confirm it.",
-                    autocomplete="new-password",
-                )
-            submitted_auth = st.form_submit_button(
-                "Log in" if auth_mode == "Log in" else "Create account",
-                type="primary",
-                width="stretch",
-            )
-            if submitted_auth:
-                if auth_mode == "Create account" and password != password_confirmation:
-                    st.error("The passwords do not match. Please re-type the same password in both fields.")
-                else:
-                    endpoint = "/auth/login" if auth_mode == "Log in" else "/auth/register"
-                    try:
-                        with st.spinner("Creating your account..." if auth_mode == "Create account" else "Signing you in..."):
-                            auth = _post_json(
-                                f"{backend_url}{endpoint}",
-                                {"email": email, "password": password},
-                                timeout_s=60.0,
-                            )
-                        access_token = auth.get("access_token")
-                        if not access_token:
-                            st.success(str(auth.get("message", "Account created. Check your email, then log in.")))
+        overview_tab, account_tab = st.tabs(["About Calm AI", "Log in / Sign up"])
+
+        with overview_tab:
+            with st.container(border=True):
+                _render_public_overview()
+
+        with account_tab:
+            with st.container(border=True):
+                st.subheader("Your private wellness space", anchor=False, icon=":material/lock:")
+                st.write("Create an account or log in to save your check-ins, journey, and conversations.")
+                auth_mode = st.radio("Account action", ["Log in", "Create account"], horizontal=True)
+                with st.form("auth_form", enter_to_submit=True):
+                    email = st.text_input("Email address", autocomplete="email")
+                    password = st.text_input(
+                        "Password",
+                        type="password",
+                        help="Use at least 8 characters.",
+                        autocomplete="current-password" if auth_mode == "Log in" else "new-password",
+                    )
+                    password_confirmation = ""
+                    if auth_mode == "Create account":
+                        password_confirmation = st.text_input(
+                            "Re-type password",
+                            type="password",
+                            help="Re-enter the same password to confirm it.",
+                            autocomplete="new-password",
+                        )
+                    submitted_auth = st.form_submit_button(
+                        "Log in" if auth_mode == "Log in" else "Create account",
+                        type="primary",
+                        width="stretch",
+                    )
+                    if submitted_auth:
+                        if auth_mode == "Create account" and password != password_confirmation:
+                            st.error("The passwords do not match. Please re-type the same password in both fields.")
                         else:
-                            st.session_state.auth_token = str(access_token)
-                            st.session_state.user_email = str(auth.get("email", email))
-                            cookie_controller.set(
-                                "calm_ai_access_token",
-                                str(access_token),
-                                max_age=7 * 24 * 60 * 60,
-                            )
-                            if auth.get("refresh_token"):
-                                cookie_controller.set(
-                                    "calm_ai_refresh_token",
-                                    str(auth["refresh_token"]),
-                                    max_age=30 * 24 * 60 * 60,
-                                )
-                            cookie_controller.set(
-                                "calm_ai_user_email",
-                                str(auth.get("email", email)),
-                                max_age=30 * 24 * 60 * 60,
-                            )
-                            # Allow the browser component to finish writing the
-                            # cookies before Streamlit starts a fresh run.
-                            time.sleep(1.0)
-                            st.session_state.pop("chat_loaded", None)
-                            st.rerun()
-                    except (requests_exceptions.ConnectionError, requests_exceptions.Timeout):
-                        st.error("Calm AI is taking too long to respond. Please try again in a moment.")
-                    except RuntimeError as e:
-                        st.error(str(e))
-            st.caption("Your check-ins, journey graphs, and conversations are saved to your account.")
+                            endpoint = "/auth/login" if auth_mode == "Log in" else "/auth/register"
+                            try:
+                                with st.spinner("Creating your account..." if auth_mode == "Create account" else "Signing you in..."):
+                                    auth = _post_json(
+                                        f"{backend_url}{endpoint}",
+                                        {"email": email, "password": password},
+                                        timeout_s=60.0,
+                                    )
+                                access_token = auth.get("access_token")
+                                if not access_token:
+                                    st.success(str(auth.get("message", "Account created. Check your email, then log in.")))
+                                else:
+                                    st.session_state.auth_token = str(access_token)
+                                    st.session_state.user_email = str(auth.get("email", email))
+                                    cookie_controller.set(
+                                        "calm_ai_access_token",
+                                        str(access_token),
+                                        max_age=7 * 24 * 60 * 60,
+                                    )
+                                    if auth.get("refresh_token"):
+                                        cookie_controller.set(
+                                            "calm_ai_refresh_token",
+                                            str(auth["refresh_token"]),
+                                            max_age=30 * 24 * 60 * 60,
+                                        )
+                                    cookie_controller.set(
+                                        "calm_ai_user_email",
+                                        str(auth.get("email", email)),
+                                        max_age=30 * 24 * 60 * 60,
+                                    )
+                                    # Allow the browser component to finish writing the
+                                    # cookies before Streamlit starts a fresh run.
+                                    time.sleep(1.0)
+                                    st.session_state.pop("chat_loaded", None)
+                                    st.rerun()
+                            except (requests_exceptions.ConnectionError, requests_exceptions.Timeout):
+                                st.error("Calm AI is taking too long to respond. Please try again in a moment.")
+                            except RuntimeError as e:
+                                st.error(str(e))
+                st.caption("Your check-ins, journey graphs, and conversations are saved privately to your account.")
     st.stop()
 
 with st.sidebar:
@@ -471,6 +584,8 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+_render_app_guide()
 
 if "chat_messages" not in st.session_state:
     st.session_state.chat_messages = []
@@ -500,13 +615,46 @@ with tab_checkin:
 
         with col1:
             log_date = st.date_input("Log date", value=date.today())
-            mood = st.selectbox("Mood", options=["Great", "Good", "Okay", "Down", "Bad"], index=2)
-            sleep_hours = st.number_input("Sleep (hours)", min_value=0.0, max_value=16.0, value=7.0, step=0.25)
-            exercise_minutes = st.number_input("Exercise (minutes)", min_value=0, max_value=300, value=20, step=5)
+            mood = st.selectbox(
+                "Mood",
+                options=["Great", "Good", "Okay", "Down", "Bad"],
+                index=2,
+                help="Choose the option that best describes how you feel today.",
+            )
+            sleep_hours = st.number_input(
+                "Sleep (hours)",
+                min_value=0.0,
+                max_value=16.0,
+                value=7.0,
+                step=0.25,
+                help="Enter approximately how many hours you slept last night.",
+            )
+            exercise_minutes = st.number_input(
+                "Exercise (minutes)",
+                min_value=0,
+                max_value=300,
+                value=20,
+                step=5,
+                help="Include intentional movement or exercise from today.",
+            )
 
         with col2:
-            stress = st.slider("Stress (0-10)", min_value=0.0, max_value=10.0, value=5.0, step=0.1)
-            craving = st.slider("Craving (0-10)", min_value=0.0, max_value=10.0, value=4.0, step=0.1)
+            stress = st.slider(
+                "Stress (0-10)",
+                min_value=0.0,
+                max_value=10.0,
+                value=5.0,
+                step=0.1,
+                help="0 means no stress; 10 means the highest stress you are experiencing today.",
+            )
+            craving = st.slider(
+                "Craving (0-10)",
+                min_value=0.0,
+                max_value=10.0,
+                value=4.0,
+                step=0.1,
+                help="0 means no craving; 10 means the strongest craving you are experiencing today.",
+            )
             social_interaction = st.number_input(
                 "Social interaction (minutes)",
                 min_value=0,
@@ -520,6 +668,7 @@ with tab_checkin:
                 max_value=3650,
                 value=7,
                 step=1,
+                help="How many days have passed since the last time you returned to the habit you are tracking.",
             )
 
         st.subheader("Triggers")
@@ -530,6 +679,11 @@ with tab_checkin:
             trigger_loneliness = st.checkbox("Loneliness", value=False)
         with tcol3:
             trigger_conflict = st.checkbox("Conflict", value=False)
+        custom_trigger = st.text_input(
+            "Other trigger (optional)",
+            max_chars=500,
+            help="Describe another situation, feeling, or event that affected you today. This is saved with your check-in but does not change the estimate yet.",
+        )
 
         submitted = st.form_submit_button(
             "Saving..." if st.session_state.checkin_submitting else "Submit log",
@@ -550,6 +704,7 @@ with tab_checkin:
             "trigger_boredom": int(trigger_boredom),
             "trigger_loneliness": int(trigger_loneliness),
             "trigger_conflict": int(trigger_conflict),
+            "custom_trigger": custom_trigger.strip() or None,
             "days_since_last_relapse": int(days_since_last_relapse),
         }
 
@@ -659,26 +814,28 @@ with tab_history:
         if not isinstance(rows, list) or not rows:
             st.info("No saved check-ins yet. Submit a daily log first.")
         else:
+            grouped: dict[str, list[dict[str, Any]]] = {}
             for row in rows:
-                mood = row.get("mood", "unknown")
-                log_day = row.get("log_date", "")
-                created_at = _format_timestamp_hhmm(str(row.get("created_at", "")))
-                st.markdown(f"**{log_day} - {mood}**")
-                c1, c2, c3 = st.columns(3)
-                c1.write(f"Stress: {row.get('stress', 'n/a')}")
-                c2.write(f"Craving: {row.get('craving', 'n/a')}")
-                c3.write(f"Sleep: {row.get('sleep_hours', 'n/a')} hrs")
-                st.caption(
-                    "Exercise: "
-                    f"{row.get('exercise_minutes', 'n/a')} min | "
-                    "Social: "
-                    f"{row.get('social_interaction', 'n/a')} min | "
-                    "Days since relapse: "
-                    f"{row.get('days_since_last_relapse', 'n/a')} | "
-                    "Saved: "
-                    f"{created_at}"
-                )
-                st.divider()
+                log_day = str(row.get("log_date", "Unknown date"))
+                grouped.setdefault(log_day, []).append(row)
+
+            for log_day, day_rows in grouped.items():
+                latest = day_rows[0]
+                latest_mood = latest.get("mood", "unknown")
+                with st.container(border=True):
+                    st.markdown(f"**{log_day} · Latest check-in ({latest_mood})**")
+                    _render_history_checkin(latest)
+
+                    previous_rows = day_rows[1:]
+                    if previous_rows:
+                        with st.expander(
+                            f"View {len(previous_rows)} earlier check-in{'s' if len(previous_rows) != 1 else ''} for {log_day}",
+                            icon=":material/history:",
+                        ):
+                            for previous in previous_rows:
+                                st.markdown(f"**Earlier check-in ({previous.get('mood', 'unknown')})**")
+                                _render_history_checkin(previous)
+                                st.divider()
     except Exception as e:
         st.error("Could not load history from backend.")
         st.code(str(e))
@@ -686,7 +843,7 @@ with tab_history:
 
 with tab_journey:
     st.header("Journey trends")
-    st.caption("Visualize how your wellness signals change over time.")
+    st.caption("Visualize how your wellness signals change over time. Charts use your latest check-in for each day.")
     if st.button("Refresh journey charts"):
         pass
 

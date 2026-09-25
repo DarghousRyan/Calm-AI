@@ -30,5 +30,6 @@ class CheckInLog(Base):
     trigger_boredom: Mapped[int] = mapped_column(Integer)
     trigger_loneliness: Mapped[int] = mapped_column(Integer)
     trigger_conflict: Mapped[int] = mapped_column(Integer)
+    custom_trigger: Mapped[str | None] = mapped_column(String(500), nullable=True)
     days_since_last_relapse: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
